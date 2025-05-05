@@ -5,6 +5,9 @@
 #  https://github.com/naknak-/paint
 #  released under GPLv3, https://www.gnu.org/licenses/gpl-3.0.html
 #
+#v100 - initial release
+#v101 - usage improvements: more examples, better explanation of Red/RED
+
 readonly me=paint
 readonly bg_offset=10
 readonly DEBUG=$(( !! "${DEBUG:-0}" ))
@@ -132,7 +135,7 @@ unset GREP_COLOR
 
 ((DEBUG)) && declare -p paints names | sed 's/\[/\n\t[/g' 
 
-# sample( paint text=names_for_paint after=\n fmt=-15s )
+# sample( paint text=names_for_paint after=\n fmt=-12s )
 sample() { 
     local code="${paints[$1]:-$1}" legend ansi
     if [[ $code = [0-9]* ]]
@@ -140,7 +143,7 @@ sample() {
       else ansi="$(str2ansi "$1")"
     fi
     [[ -z "${2-}" ]] && legend="${names[$code]:-${names[$(( code - bg_offset ))]}}"
-    printf "\e[%sm%${4:--15s}\e[0m%s" "$ansi" "${2:-$legend}" "${3-$'\n'}"
+    printf "\e[%sm%${4:--12s}\e[0m%s" "$ansi" "${2:-$legend}" "${3-$'\n'}"
 } 
 
 # die( text rc=1 )
@@ -152,18 +155,34 @@ usage() {
     echo
     sample i "Apply colors and effects, by name, to text"
     sample thin "\
-    * foreground, background, effect are all optional. Effects may be combined.
-    * Prefix lone background with '-'.  
-    * grep pattern is optional, defaults to whole line
-    * set environment DARK=1 to use dark versions of macros
+  * foreground, background, effect are all optional. Effects may be combined.
+  * Prefix lone background with '-'.  
+  * grep pattern is optional, defaults to whole line
+  * set environment DARK=1 to use dark versions of macros
     "
+
+    declare -A protips=( 
+        ["bold b"]="capitalized color (e.g. Red) implies bold" 
+        ["reverse rev"]="all-caps color (e.g. RED) implies reverse" 
+        [blink]="not blinking on purpose" 
+        [flash]="you can try it yourself" 
+        [spoiler]="(that says spoiler)"
+      )
+    declare -A nodemo=( [blink]=1 [flash]=1 )
     sample u "colors and effects:"
     local e=-1 c 
     for c in "${!is_color[@]}"; do
-        printf "    "
+        printf "  "
         sample "$c" "" " "
         sample "$((c+10))" "" "  "
-        (( ++e < ${#effects[@]} )) && sample "${effects[e]}" || echo
+        if (( ++e < ${#effects[@]} )); then
+          local label="${names[${effects[e]}]}" effect=${effects[e]}
+          (( nodemo[$label] )) && effect=0
+          sample $effect "$label" "" 
+          sample shh " ${protips[$label]:- }"
+        else
+          echo
+        fi
     done
     echo   
 
@@ -182,7 +201,7 @@ usage() {
     sample u "examples:" $'\n' s
     sample b "$ date | $me _________"
     for example in lime-ash-bold-italic l-ash-b-i pink -pink strike-b-i-u RED Red; do 
-      printf "    %-20s  " "$example"
+      printf "  %-20s  " "$example"
       sample $example "$sample_text" ""
       sample shh "  ${examples[$example]}"
     done
@@ -191,7 +210,7 @@ usage() {
     printf "%-19s %-40s   %s\n" "$( sample u "macros:" "" s )" "$( sample u DARK=0 "" s ) (default)" "$( sample u DARK=1 "" s )"
     local dark
     for example in "${!macros[@]}";do 
-      printf "    %-7s " "$example"
+      printf "  %-7s " "$example"
       for dark in 0 1; do
         init_macros $dark
         sample $example "$sample_text" "" 
@@ -203,14 +222,14 @@ usage() {
     echo
     
     sample u "cookbook:" $'\n' s
-    sample i "    highlight specific text"        "" -40s; echo 'date  | paint red -E "Sat|Sun" '
-    sample i "    highlight today's date"         "" -40s; echo 'ls -l | paint OK "$( date +"%b.%e" )"'
-    sample i "    suppress newline"               "" -40s; echo 'paint blue -z <<<"some text"'
-    sample i "    color stderr"                   "" -40s; echo '[[ -t 2 ]] && exec 2> >(paint err)'    
-    sample i "    cleanup colored stderr at end"  "" -40s; echo 'exec 2<&- ; wait'
-    sample i "    first line only"                "" -40s; echo "df | paint head -Pz '^.*'"
-    sample i "    words only, first line only"    "" -40s; echo "df | paint head -Pz '(?<=(^|\G)\h{,99})\S+'"
-    sample i "    apply multiple paints"          "" -40s; echo "df | paint head -Pz '(?<=(^|\G)\h{,99})\S+' | paint ERR -P '9.%|1..%|^'"
+    sample i "  highlight specific text"        "" -40s; echo 'date  | paint red -E "Sat|Sun" '
+    sample i "  highlight today's date"         "" -40s; echo 'ls -l | paint OK "$( date +"%b.%e" )"'
+    sample i "  suppress newline"               "" -40s; echo 'paint blue -z <<<"some text"'
+    sample i "  color stderr"                   "" -40s; echo '[[ -t 2 ]] && exec 2> >(paint err)'    
+    sample i "  ... then clean up at end"       "" -40s; echo 'exec 2<&- ; wait'
+    sample i "  first line only"                "" -40s; echo "df | paint head -Pz '^.*'"
+    sample i "  words only, first line only"    "" -40s; echo "df | paint head -Pz '(?<=(^|\G)\h{,99})\S+'"
+    sample i "  ... and mark high percentages"  "" -40s; echo "df | paint head -Pz '(?<=(^|\G)\h{,99})\S+' | paint ERR -P '9.%|1..%|^'"
     echo
     exit 0 
 }
