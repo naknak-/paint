@@ -5,125 +5,71 @@
 #  https://github.com/naknak-/paint
 #  released under GPLv3, https://www.gnu.org/licenses/gpl-3.0.html
 #
-#v100 - initial release
-#v101 - usage improvements: more examples, better explanation of Red/RED
+#v100 initial release
+#v101 usage improvements: more examples, better explanation of Red/RED
+#v102 autocompute names[] and sample width
+#v103 force -P, allow switches before spec, force . delimiter, allow /foo/ _foo_, polish usage, bugfixes
 
 readonly me=paint
 readonly bg_offset=10
-readonly DEBUG=$(( !! "${DEBUG:-0}" ))
-DARK=$(( !! "${DARK:-0}" ))
-declare -rA paints=(    [reset]=0
-	    [bold]=1
-	    [b]=1
-	    [dim]=2
-	    [d]=2
-	    [italic]=3
-	    [i]=3
-	    [underline]=4
-	    [u]=4
-	    [blink]=5
-	    [flash]=6
-	    [reverse]=7
-	    [rev]=7
-	    [spoiler]=8
-	    [strike]=9
-	    [xx]=9
-	    [thin]=19
-	    [gothic]=20
-	    [doubleunder]=21
-	    [uu]=21
-	    [superscript]=73
-	    [sup]=73
-	    [subscript]=74
-	    [sub]=74
-	    [black]=30
-	    [k]=30
-	    [red]=31
-	    [r]=31
-	    [green]=32
-	    [g]=32
-	    [gold]=33
-	    [au]=33
-	    [navy]=34
-	    [n]=34
-	    [purple]=35
-	    [pr]=35
-	    [aqua]=36
-	    [a]=36
-	    [silver]=37
-	    [s]=37
-	    [light]=37
-	    [default]=39
-	    [ash]=90
-	    [pink]=91
-	    [p]=91
-	    [lime]=92
-	    [l]=92
-	    [yellow]=93
-	    [y]=93
-	    [sky]=94
-	    [magenta]=95
-	    [m]=95
-	    [cyan]=96
-	    [c]=96
-	    [white]=97
-	    [w]=97
-	)
-declare -ra names=(     [0]='reset'
-	    [1]='bold b'
-	    [2]='dim d'
-	    [3]='italic i'
-	    [4]='underline u'
-	    [5]='blink'
-	    [6]='flash'
-	    [7]='reverse rev'
-	    [8]='spoiler'
-	    [9]='strike xx'
-	    [19]='thin'
-	    [20]='gothic'
-	    [21]='doubleunder uu'
-	    [73]='superscript sup'
-	    [74]='subscript sub'
-	    [30]='black k'
-	    [31]='red r'
-	    [32]='green g'
-	    [33]='gold au'
-	    [34]='navy n'
-	    [35]='purple pr'
-	    [36]='aqua a'
-	    [37]='silver s'
-	    [39]='default'
-	    [90]='ash'
-	    [91]='pink p'
-	    [92]='lime l'
-	    [93]='yellow y'
-	    [94]='sky'
-	    [95]='magenta m'
-	    [96]='cyan c'
-	    [97]='white w'
-	)
+export DEBUG=$(( !! "${DEBUG:-0}" ))
+export DARK=$(( !! "${DARK:-0}" ))
+declare -rA paints=(
+    [reset]=0                    
+    [bold]=1          [b]=1      
+    [dim]=2           [d]=2      
+    [italic]=3        [i]=3      
+    [underline]=4     [u]=4      
+    [blink]=5                    
+    [flash]=6                    
+    [reverse]=7       [rev]=7    
+    [spoiler]=8                  
+    [strike]=9        [xx]=9     
+    [thin]=19         [t]=19               
+    [gothic]=20                  
+    [doubleunder]=21  [uu]=21    
+    [superscript]=73  [sup]=73   
+    [subscript]=74    [sub]=74   
+    [black]=30        [k]=30     
+    [red]=31          [r]=31     
+    [green]=32        [g]=32     
+    [gold]=33         [au]=33    
+    [navy]=34         [n]=34     
+    [purple]=35       [pr]=35    
+    [aqua]=36         [a]=36     
+    [silver]=37       [s]=37     [light]=37
+    [default]=39                 
+    [ash]=90          [dark]=90  
+    [pink]=91         [p]=91     
+    [lime]=92         [l]=92     
+    [yellow]=93       [y]=93     
+    [sky]=94                     
+    [magenta]=95      [m]=95     
+    [cyan]=96         [c]=96     
+    [white]=97        [w]=97     
+  )
 declare -ra is_color=( [30]=1 [31]=1 [32]=1 [33]=1 [34]=1 [35]=1 [36]=1 [37]=1 [39]=1 [90]=1 [91]=1 [92]=1 [93]=1 [94]=1 [95]=1 [96]=1 [97]=1 )
 declare -ra effects=( {1..9} 19 20 21 73 74 0 )
 
 declare -A macros=(
-    [head]=b-u
-    [shh]=dim-i-thin
-    [hiviz]=black-yellow
-    [info]=gray
-    [hey]=blue
+    [head]=b.u
+    [shh]=d.i.t
+    [viz]=k.y
+    [info]=dim
+    [gy]=gray
   )
 
 # init_macros( dark=0 ) 
 init_macros() {
-  if (( ${1:-0} )); then
+  if (( ${1:-0} )); then # dark
     macros[err]=pink
-    macros[warn]=yellow
+    macros[warn]=magenta
     macros[ok]=lime
     macros[gray]=silver
     macros[blue]=sky
-  else
+  else # light
     macros[err]=red
-    macros[warn]=gold
+    macros[warn]=purple
     macros[ok]=green
     macros[gray]=ash
     macros[blue]=navy
@@ -133,9 +79,9 @@ init_macros DARK
 
 unset GREP_COLOR
 
-((DEBUG)) && declare -p paints names | sed 's/\[/\n\t[/g' 
+((DEBUG)) && declare -p paints | sed 's/\[/\n\t[/g' 
 
-# sample( paint text=names_for_paint after=\n fmt=-12s )
+# sample( paint text=names_for_paint after=\n fmt=-${widest}s )
 sample() { 
     local code="${paints[$1]:-$1}" legend ansi
     if [[ $code = [0-9]* ]]
@@ -143,43 +89,53 @@ sample() {
       else ansi="$(str2ansi "$1")"
     fi
     [[ -z "${2-}" ]] && legend="${names[$code]:-${names[$(( code - bg_offset ))]}}"
-    printf "\e[%sm%${4:--12s}\e[0m%s" "$ansi" "${2:-$legend}" "${3-$'\n'}"
+    printf "\e[%sm%${4:--${widest:-15}s}\e[0m%s" "$ansi" "${2:-$legend}" "${3-$'\n'}"
 } 
 
 # die( text rc=1 )
 die() { sample "31;107;1" "$1" >&2; exit "${2-1}"; }
 
 usage() {
-    sample b-u "Usage:" "" s
-    echo " $me foreground-background-effect [arguments to grep: pattern, switches, files]"
+    declare -A names=()
+    local e=-1 c widest=0
+    IFS=$'\n'
+    for x in $( printf "%s\n" "${!paints[@]}" | sort ); do
+      names[${paints[$x]}]+=" $x";
+      (( ${#names[${paints[$x]}]} > widest )) && widest=${#names[${paints[$x]}]}
+    done
+  
+    sample b.u "Usage:" "" s
+    echo " $me foreground.background.effect [arguments to grep -P]"
     echo
     sample i "Apply colors and effects, by name, to text"
     sample thin "\
-  * foreground, background, effect are all optional. Effects may be combined.
-  * Prefix lone background with '-'.  
+  * effects may be combined.
+  * foreground, background, effect are all optional. 
+  * if omitting foreground, start with a dot.
   * grep pattern is optional, defaults to whole line
   * set environment DARK=1 to use dark versions of macros
     "
 
     declare -A protips=( 
-        ["bold b"]="capitalized color (e.g. Red) implies bold" 
-        ["reverse rev"]="all-caps color (e.g. RED) implies reverse" 
-        [blink]="not blinking on purpose" 
-        [flash]="you can try it yourself" 
-        [spoiler]="(that says spoiler)"
+        ["b bold"]="titlecase (\"Red\") implies bold" 
+        ["rev reverse"]="or all-caps" 
+        ["i italic"]="or say /red/"
+        ["u underline"]="or _red_"
+        [blink]="blink suppressed here"
+        [flash]="but you can try it yourself" 
+        [spoiler]="(that says \"spoiler\")"
       )
     declare -A nodemo=( [blink]=1 [flash]=1 )
     sample u "colors and effects:"
-    local e=-1 c 
     for c in "${!is_color[@]}"; do
         printf "  "
         sample "$c" "" " "
         sample "$((c+10))" "" "  "
         if (( ++e < ${#effects[@]} )); then
           local label="${names[${effects[e]}]}" effect=${effects[e]}
-          (( nodemo[$label] )) && effect=0
+          (( nodemo[${label# }] )) && effect=0
           sample $effect "$label" "" 
-          sample shh " ${protips[$label]:- }"
+          sample shh " ${protips[${label# }]:- }"
         else
           echo
         fi
@@ -188,24 +144,6 @@ usage() {
 
     local sample_text example
     printf -vsample_text " %(%a %e %b %H:%M)T "
-
-    declare -A examples=(
-      [lime-ash-bold-italic]="foreground-background-effects"
-      [l-ash-b-i]="same thing using abbreviations"
-      [pink]="foreground only"
-      [-pink]="background only"
-      [strike-b-i-u]="effects only"
-      [RED]="all caps implies reverse"
-      [Red]="titlecase implies bold"
-    )
-    sample u "examples:" $'\n' s
-    sample b "$ date | $me _________"
-    for example in lime-ash-bold-italic l-ash-b-i pink -pink strike-b-i-u RED Red; do 
-      printf "  %-20s  " "$example"
-      sample $example "$sample_text" ""
-      sample shh "  ${examples[$example]}"
-    done
-    echo
 
     printf "%-19s %-40s   %s\n" "$( sample u "macros:" "" s )" "$( sample u DARK=0 "" s ) (default)" "$( sample u DARK=1 "" s )"
     local dark
@@ -221,31 +159,76 @@ usage() {
     done
     echo
     
+    declare -A examples=(
+      [lime.gray.bold]="fg.bg.effect"
+      [l.gy.b]="same thing, abbreviated"
+      [pink]="foreground only"
+      [.pink]="background only"
+      [strike.b.i.u]="effects only"
+      [BLUE]="all caps implies reverse"
+      [Blue]="titlecase implies bold"
+      [/blue/]="/color/ for italic color"
+      [_blue_]="... or _ for underline"
+    )
+    sample u "examples:" $'\n' s
+    sample b "$ date | $me _________"
+    for example in lime.gray.bold l.gy.b pink .pink strike.b.i.u BLUE Blue /blue/ _blue_ ; do 
+      printf "  %-20s  " "$example"
+      sample $example "$sample_text" ""
+      sample shh "  ${examples[$example]}"
+    done
+    echo
+
     sample u "cookbook:" $'\n' s
-    sample i "  highlight specific text"        "" -40s; echo 'date  | paint red -E "Sat|Sun" '
-    sample i "  highlight today's date"         "" -40s; echo 'ls -l | paint OK "$( date +"%b.%e" )"'
-    sample i "  suppress newline"               "" -40s; echo 'paint blue -z <<<"some text"'
-    sample i "  color stderr"                   "" -40s; echo '[[ -t 2 ]] && exec 2> >(paint err)'    
-    sample i "  ... then clean up at end"       "" -40s; echo 'exec 2<&- ; wait'
-    sample i "  first line only"                "" -40s; echo "df | paint head -Pz '^.*'"
-    sample i "  words only, first line only"    "" -40s; echo "df | paint head -Pz '(?<=(^|\G)\h{,99})\S+'"
-    sample i "  ... and mark high percentages"  "" -40s; echo "df | paint head -Pz '(?<=(^|\G)\h{,99})\S+' | paint ERR -P '9.%|1..%|^'"
+    cookbook "highlight specific text"       'date  | paint red "Sat|Sun" '
+    cookbook "... showing other lines too"   "df | paint red '\d+%|^'"
+    cookbook "... or use -z"                 "df | paint -z red '\d+%'"
+    cookbook "highlight today's date"        'ls -l | paint OK "$( date +"%b.%e" )"'
+    cookbook "suppress newline"              'paint blue -z <<<"some text"'
+    cookbook "color stderr"                  '[[ -t 2 ]] && exec 2> >(paint err)'    
+    cookbook "... then clean up at end"      'exec 2<&- ; wait'
+    cookbook "first line only"               "df | paint head -z '^.*'"
+    cookbook "words only, first line only"   "df | paint head -z '(?<=(^|\G)\h{,99})\S+'"
+    cookbook "... and mark high percentages" "df | paint head -z '(?<=(^|\G)\h{,99})\S+' \\
+                                           | paint ERR -z '9.%|1..%'"
+    cookbook "underline every third word"    "date | paint u '(\S+\s+){2}\K\S+'"
+    cookbook "dim alternating lines"         "ls -l | paint dim -z '.*\n\K.*\n'"
     echo
     exit 0 
 }
 
+cookbook() {
+  sample shh "  $1" "" -33s;
+  printf "%s%s\n" "$2" ${3:+$' \\\n\t\t\t\t'}"${3-}"
+}
+
+debug() { 
+  (( DEBUG )) || return 0
+  local x
+  if (( $# >1 )); then 
+    printf -vx "$@"
+  else 
+    x="$1"
+  fi
+  sample dim "$x" >&2
+}
+
 str2ansi() {
     local spec="$1" is_bg=0 name esc code
-    while [[ -n $spec && $spec =~ ^([a-zA-Z]*)([+./_-]+(.+)|$) ]]; do 
-        name="${BASH_REMATCH[1]:-default}" spec="${BASH_REMATCH[3]}"
-        [[ $name =~ ^[A-Z][A-Z0-9]*$     ]] && name=${name,,} spec+="${spec:+-}reverse"
-        [[ $name =~ ^[A-Z][a-z0-9]*[a-z] ]] && name=${name,,} spec+="${spec:+-}bold"
+    while [[ -n $spec && $spec =~ ^([_/]*)([a-zA-Z]*)([/_]*)([.]+(.+)|$) ]]; do 
+        debug "match:[%s]\n" "spec=$spec" "${BASH_REMATCH[@]}"
+        name="${BASH_REMATCH[2]:-default}" spec="${BASH_REMATCH[5]}" affix="${BASH_REMATCH[1]}${BASH_REMATCH[3]}"
+        [[ $name =~ ^[A-Z][A-Z0-9]*$  ]] && spec+="${spec:+.}reverse"
+        [[ $name =~ ^[A-Z][0-9]*[a-z] ]] && spec+="${spec:+.}bold"
+        [[ $affix =~ / ]] && spec+="${spec:+.}italic"
+        [[ $affix =~ _ ]] && spec+="${spec:+.}underline"
+        name="${name,,}"
         code="${paints[$name]:-${macros[$name]?unknown paint spec: $name}}"
         if [[ $code = [0-9]* ]]; then 
             esc+="${esc+;}$(( code + bg_offset * is_bg * is_color[code] ))" 
             (( is_color[code] )) && is_bg=1
         else
-            spec="$code${spec:+-$spec}" 
+            spec="$code${spec:+.$spec}" 
         fi
     done
     (( ${#spec} )) && die "unknown paint spec: '$spec'"
@@ -253,13 +236,20 @@ str2ansi() {
 }
 
 paint() { 
-    local target=sl ansi="$(str2ansi "$1")" arg pat=^ colorwhen="--color=always"
+    local target=sl ansi arg pat=^ colorwhen="--color=always" 
+    declare -a args=()
+    while [[ $1 = -* ]]; do
+      args+=( $1 )
+      shift
+    done
+    (( $# )) || usage
+    ansi="$(str2ansi "$1")"
     shift
     for arg; do
-      [[ $arg = [^-]* || $arg = -- ]] && unset pat && target=mt
-      [[ $arg =~ ^--colou?r=..*$ ]] && unset color
+      [[ $arg = [^-]* || $arg = -- || $arg = --regex* ]] && unset pat && target=mt
+      [[ $arg =~ ^--colou?r=..*$ ]] && unset colorwhen
     done
-    [[ -n $ansi ]] && GREP_COLORS=$target="$ansi" grep --line-buffered $colorwhen "$@" ${pat:-} | tr -d '\0'
+    [[ -n $ansi ]] && GREP_COLORS=$target="$ansi" grep --line-buffered -Pa $colorwhen "${args[@]}" "$@" ${pat:-} | tr -d '\0'
 }
 
 (( $# )) && [[ $1 != *-h* ]] || usage	
