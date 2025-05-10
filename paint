@@ -9,6 +9,7 @@
 #v101 usage improvements: more examples, better explanation of Red/RED
 #v102 autocompute names[] and sample width
 #v103 force -P, allow switches before spec, force . delimiter, allow /foo/ _foo_, polish usage, bugfixes
+#v104 add |^ to pattern
 
 readonly me=paint
 readonly bg_offset=10
@@ -53,7 +54,7 @@ declare -ra effects=( {1..9} 19 20 21 73 74 0 )
 
 declare -A macros=(
     [head]=b.u
-    [shh]=d.i.t
+    [shh]=gray.d.i.t
     [viz]=k.y
     [info]=dim
     [gy]=gray
@@ -181,10 +182,8 @@ usage() {
 
     sample u "cookbook:" $'\n' s
     cookbook "highlight specific text"       'date  | paint red "Sat|Sun" '
-    cookbook "... showing other lines too"   "df | paint red '\d+%|^'"
-    cookbook "... or use -z"                 "df | paint -z red '\d+%'"
-    cookbook "highlight today's date"        'ls -l | paint OK "$( date +"%b.%e" )"'
-    cookbook "suppress newline"              'paint blue -z <<<"some text"'
+    cookbook "-z prevents added newline"     "paint blue -z <<<hello"
+    cookbook "highlight today's date"        'ls -l | paint OK $( date +"%b.%e(?=...:)" )'
     cookbook "color stderr"                  '[[ -t 2 ]] && exec 2> >(paint err)'    
     cookbook "... then clean up at end"      'exec 2<&- ; wait'
     cookbook "first line only"               "df | paint head -z '^.*'"
@@ -236,7 +235,7 @@ str2ansi() {
 }
 
 paint() { 
-    local target=sl ansi arg pat=^ colorwhen="--color=always" 
+    local target="sl" ansi arg colorwhen="--color=always" got_pat="" pat_is_next="" arg_is_next=""
     declare -a args=()
     while [[ $1 = -* ]]; do
       args+=( $1 )
@@ -246,10 +245,27 @@ paint() {
     ansi="$(str2ansi "$1")"
     shift
     for arg; do
-      [[ $arg = [^-]* || $arg = -- || $arg = --regex* ]] && unset pat && target=mt
-      [[ $arg =~ ^--colou?r=..*$ ]] && unset colorwhen
+      debug "arg=$arg"
+      [[ -z $arg_is_next ]] && {
+        if [[ $arg =~ ^-[a-zA-Z]*f|^--file= ]]; then got_pat=1
+        elif [[ $arg = [^-]* || $arg = --regexp=* || $arg = -e?* || -n $pat_is_next ]]; then arg+="|^" got_pat=1
+        elif [[ $arg =~ ^-[a-zA-Z]*[ABCmDd]$ ]]; then arg_is_next=1
+        elif [[ $arg = -- || $arg =~ ^-[a-zA-Z]*e$ ]]; then pat_is_next=1
+        elif [[ $arg =~ ^--colou?r=. ]]; then unset colorwhen
+        fi
+      }
+      args+=( "$arg" )
+      shift
+      arg_is_next=""
+      [[ -n $got_pat ]] && break
     done
-    [[ -n $ansi ]] && GREP_COLORS=$target="$ansi" grep --line-buffered -Pa $colorwhen "${args[@]}" "$@" ${pat:-} | tr -d '\0'
+    if [[ -n $got_pat ]]; 
+      then target=mt
+      else args+=("^")
+    fi
+    debug "arg:[%s]\n" "${args[@]}"
+    ((DEBUG)) && set -x
+    [[ -n $ansi ]] && GREP_COLORS="$target=$ansi" grep --line-buffered -Pa $colorwhen "${args[@]}" "$@" | tr -d '\0'
 }
 
 (( $# )) && [[ $1 != *-h* ]] || usage	
