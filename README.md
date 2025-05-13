@@ -1,4 +1,4 @@
-This Bash script applies ANSI escape-sequence colors and effects to terminal text, using grep's coloring facilities and a table of friendly names.
+This Bash script applies ANSI escape-sequence colors and effects to terminal text, using the coloring facility of GNU `grep` and a table of friendly names.
 
 **To install**, download `paint` and place it in the PATH.   
 
