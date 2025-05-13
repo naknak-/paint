@@ -3,13 +3,14 @@
 # usage: $0 foreground-background-effect [optional arguments to grep]"
 # 
 #  https://github.com/naknak-/paint
-#  released under GPLv3, https://www.gnu.org/licenses/gpl-3.0.html
+#  released under MIT license
 #
 #v100 initial release
 #v101 usage improvements: more examples, better explanation of Red/RED
 #v102 autocompute names[] and sample width
 #v103 force -P, allow switches before spec, force . delimiter, allow /foo/ _foo_, polish usage, bugfixes
-#v104 add |^ to pattern
+#v104 add |^ to patterns
+#v105 self-test ("paint test"); interpret leading -h as grep -h, not -help (--help still works); parsing more robust in the face of e.g. "-m 4"
 
 readonly me=paint
 readonly bg_offset=10
@@ -115,7 +116,8 @@ usage() {
   * if omitting foreground, start with a dot.
   * grep pattern is optional, defaults to whole line
   * set environment DARK=1 to use dark versions of macros
-    "
+  * grep args beginning with '-' may precede the paint-spec
+"
 
     declare -A protips=( 
         ["b bold"]="titlecase (\"Red\") implies bold" 
@@ -182,7 +184,7 @@ usage() {
 
     sample u "cookbook:" $'\n' s
     cookbook "highlight specific text"       'date  | paint red "Sat|Sun" '
-    cookbook "-z prevents added newline"     "paint blue -z <<<hello"
+    cookbook "-z prevents added newline"     "echo -n hello | paint blue -z" 
     cookbook "highlight today's date"        'ls -l | paint OK $( date +"%b.%e(?=...:)" )'
     cookbook "color stderr"                  '[[ -t 2 ]] && exec 2> >(paint err)'    
     cookbook "... then clean up at end"      'exec 2<&- ; wait'
@@ -194,6 +196,81 @@ usage() {
     cookbook "dim alternating lines"         "ls -l | paint dim -z '.*\n\K.*\n'"
     echo
     exit 0 
+}
+
+assert() {
+  local x=$1 sample=$'a 1\nz'
+  (( n++ ))
+  shift
+  printf "%-20s| " "$*"
+  local got="$( printf "%s" "$sample" | paint "$@" 2>&1 | perl -0777pe '
+    s/ \e \[ ( [\d;]* ) m \e \[K /{$1}/gx;
+    s/ \e \[ 0m /{}/gx;
+    s/ \e \[ 31;107;1m unknown[ ]paint[ ]spec:[ ]/{E_SPEC}/gx;
+    s/ \e \[ 31;107;1m /{ERR}/gx;
+    s,\r*\n,/,g; 
+    s/\e/<ESC>/g;
+    s/\0/<NULL>/g;
+    s/grep: (.*): No such file or directory/{nosuch:$1}/;
+    s/([\x01-\x1f])/ sprintf "<%02x>" => ord $1 /ge;
+    s| ^ ( \{ [\d;]* \} ) a[ ]1 \{\} / \1 z \{\} / $ |{$1}|x;
+  ' )"
+  if [[ $got = $x ]]
+    then printf "ok\n"
+    else 
+        printf "%s" "$sample" | paint "$@" 2>&1
+        printf "FAIL:\n\t\texpected:\t%s\n\t\tgot:\t\t%s\n" "$x" "$got"
+        ((err++))
+        echo
+  fi
+}
+
+selftest() {
+  local n=0 err=0
+
+  export DARK
+  set -x
+  DARK=0
+  { set +x; } >&/dev/null
+  assert "{{31}}"          red
+  assert "{E_SPEC}'1'{}/"  -C 1 red
+  assert "{{31}}"          -C1 red
+  assert "{nosuch:^}/"     -e'.*' red
+  assert "{nosuch:^}/"     --regexp='.*' red
+  assert "{{31}}"          red -e'.*'
+  assert "{{31}}"          red --regexp='.*'
+  assert '{31}a{} 1/z/'    red a
+  assert '{31}a{} 1/z/'    red "a|"
+  assert '{31}a{} 1/'      red 'a|\'
+  assert '{31}a 1/z{}'     -z red
+  assert '{31}a 1/z{}'     red -z
+  assert '{39;41}a 1/z{}'  -z .red
+  assert 'a 1/z/'          --color=never red
+  assert '{{32;7}}'        OK
+  assert '{{32;4}}'        _ok_
+  assert '{{32;1;4}}'      _Ok_
+  assert '{{32;3}}'        /ok/
+  assert '{{32;3;4}}'      /ok_
+  set -x;
+  DARK=1
+  { set +x; } >&/dev/null
+  assert "{{31}}"          red
+  assert "{{31}}"          err
+  assert "{{92;100;1}}"    lime.gray.bold   
+  assert "{{92;100;1}}"    l.gy.b          
+  assert "{{91}}"          pink           
+  assert "{{39;101}}"      .pink         
+  assert "{{1;91}}"        b.pink         
+  assert "{{39;101;1}}"    .pink.b         
+  assert "{{9;1;3;4}}"     strike.b.i.u 
+  assert "{{34;7}}"        BLUE        
+  assert "{{34;1}}"        Blue       
+  assert "{{34;3}}"        /blue/    
+  assert "{{34;4}}"        _blue_   
+
+
+  printf  "%3s failures in %s tests\n" $err $n
+  exit $(( !! $err ))
 }
 
 cookbook() {
@@ -235,38 +312,34 @@ str2ansi() {
 }
 
 paint() { 
-    local target="sl" ansi arg colorwhen="--color=always" got_pat="" pat_is_next="" arg_is_next=""
+    local target="sl" ansi arg saw_pat= pat_is_next= arg_is_next=0 switches="^-[a-dg-ln-zE-Z]*"
     declare -a args=()
-    while [[ $1 = -* ]]; do
-      args+=( $1 )
-      shift
-    done
+    while [[ ${1-} = -* ]]; do args+=( "$1" ); shift; done
     (( $# )) || usage
     ansi="$(str2ansi "$1")"
     shift
     for arg; do
       debug "arg=$arg"
-      [[ -z $arg_is_next ]] && {
-        if [[ $arg =~ ^-[a-zA-Z]*f|^--file= ]]; then got_pat=1
-        elif [[ $arg = [^-]* || $arg = --regexp=* || $arg = -e?* || -n $pat_is_next ]]; then arg+="|^" got_pat=1
-        elif [[ $arg =~ ^-[a-zA-Z]*[ABCmDd]$ ]]; then arg_is_next=1
-        elif [[ $arg = -- || $arg =~ ^-[a-zA-Z]*e$ ]]; then pat_is_next=1
-        elif [[ $arg =~ ^--colou?r=. ]]; then unset colorwhen
+       (( arg_is_next-- > 0 )) || { 
+        if [[ $arg =~ ${switches}f|^--file ]]; then saw_pat=1
+        elif [[ $arg =~ ^[^-]|^--regexp=.|${switches}e. || $pat_is_next = 1 ]]; then arg+="|^" saw_pat=1
+        elif [[ $arg =~ ${switches}[ABCDmd]$ ]]; then arg_is_next=2 
+        elif [[ $arg = -- || $arg =~ ${switches}e$ ]]; then pat_is_next=1
         fi
       }
       args+=( "$arg" )
       shift
-      arg_is_next=""
-      [[ -n $got_pat ]] && break
+      (( saw_pat )) && break
     done
-    if [[ -n $got_pat ]]; 
+    if (( saw_pat )) 
       then target=mt
       else args+=("^")
     fi
     debug "arg:[%s]\n" "${args[@]}"
     ((DEBUG)) && set -x
-    [[ -n $ansi ]] && GREP_COLORS="$target=$ansi" grep --line-buffered -Pa $colorwhen "${args[@]}" "$@" | tr -d '\0'
+    [[ -n $ansi ]] && GREP_COLORS="$target=$ansi" grep --line-buffered -Pa --color=always "${args[@]}" "$@" | tr -d '\0'
 }
 
-(( $# )) && [[ $1 != *-h* ]] || usage	
+(( $# )) && [[ $1 != --help ]] || usage	
+[[ $1 = test ]] && selftest
 paint "$@"
